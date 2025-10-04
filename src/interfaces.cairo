@@ -53,6 +53,38 @@ pub struct Rebalance {
     pub target_idle_bps: u256,
 }
 
+// Fee Management Events
+#[derive(Drop, starknet::Event)]
+pub struct FeesCharged {
+    #[key]
+    pub vault: ContractAddress,
+    pub performance_fee_shares: u256,
+    pub management_fee_shares: u256,
+    pub total_fee_shares: u256,
+    pub high_water_mark: u256,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct HarvestExecuted {
+    #[key]
+    pub vault: ContractAddress,
+    #[key]
+    pub keeper: ContractAddress,
+    pub gross_assets_before: u256,
+    pub gross_assets_after: u256,
+    pub profit: u256,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct KeeperUpdated {
+    #[key]
+    pub vault: ContractAddress,
+    pub keeper: ContractAddress,
+    pub authorized: bool,
+}
+
 // SNIP-22 Vault Interface (ERC-4626 compatible)
 #[starknet::interface]
 pub trait ISnip22Vault<TContractState> {

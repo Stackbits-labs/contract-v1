@@ -1,6 +1,6 @@
-// VaultSwBTC - Enhanced vault implementation with automatic Vesu strategy integration
+// VaultSwBTC - Enhanced vault implementation with automatic Vesu strategy integration and fee management
 use starknet::ContractAddress;
-use super::interfaces::{Deposit, Withdraw, Invest, Divest, Rebalance};
+use super::interfaces::{Deposit, Withdraw, Invest, Divest, Rebalance, FeesCharged, HarvestExecuted, KeeperUpdated};
 use super::strategy::VesuAdapter::{
     VesuAdapterConfig, vesu_assets, get_default_vesu_config, 
     push_to_vesu, pull_from_vesu, is_strategy_healthy
@@ -329,6 +329,33 @@ pub struct VaultState {
     pub total_divested: u256,
 }
 
+// Fee Management State
+#[derive(Copy, Drop)]
+pub struct FeeConfig {
+    pub treasury: ContractAddress,
+    pub management_fee_bps: u256,    // Management fee in basis points (e.g., 200 = 2% annual)
+    pub performance_fee_bps: u256,   // Performance fee in basis points (e.g., 2000 = 20%)
+    pub last_fee_timestamp: u64,     // Last time fees were charged
+    pub high_water_mark: u256,       // High water mark for performance fees
+}
+
+// Keeper Role Management
+#[derive(Copy, Drop)]
+pub struct KeeperConfig {
+    pub keeper: ContractAddress,
+    pub authorized: bool,
+}
+
+// Fee Preview Structure
+#[derive(Copy, Drop)]
+pub struct FeePreview {
+    pub management_fee_shares: u256,
+    pub performance_fee_shares: u256,
+    pub total_fee_shares: u256,
+    pub projected_profit: u256,
+    pub time_since_last_harvest: u64,
+}
+
 // Calculate current APY based on strategy performance
 pub fn calculate_vault_apy(
     initial_assets: u256,
@@ -347,4 +374,216 @@ pub fn calculate_vault_apy(
     } else {
         0
     }
+}
+
+// ===== FEE MANAGEMENT FUNCTIONS =====
+
+// Constants for fee calculations
+pub mod fee_constants {
+    pub const SECONDS_PER_YEAR: u64 = 31536000; // 365 * 24 * 3600
+    pub const BASIS_POINTS_SCALE: u256 = 10000; // 1 = 0.01%
+    pub const MAX_MANAGEMENT_FEE: u256 = 500; // 5% max management fee
+    pub const MAX_PERFORMANCE_FEE: u256 = 5000; // 50% max performance fee
+}
+
+// Preview fees without executing harvest
+pub fn preview_fees(
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig,
+    fee_config: FeeConfig,
+    total_supply: u256,
+    current_timestamp: u64
+) -> FeePreview {
+    // Calculate gross assets (vault + strategy)
+    let gross_assets = total_assets_with_strategy(vault_balance, vesu_config);
+    
+    // Calculate performance fees
+    let (performance_fee_shares, profit) = if gross_assets > fee_config.high_water_mark {
+        let profit = gross_assets - fee_config.high_water_mark;
+        let perf_fee_assets = (profit * fee_config.performance_fee_bps) / fee_constants::BASIS_POINTS_SCALE;
+        
+        // Convert fee assets to shares
+        let perf_fee_shares = if total_supply == 0 {
+            perf_fee_assets
+        } else {
+            (perf_fee_assets * total_supply) / gross_assets
+        };
+        (perf_fee_shares, profit)
+    } else {
+        (0, 0)
+    };
+    
+    // Calculate management fees
+    let time_elapsed = current_timestamp - fee_config.last_fee_timestamp;
+    let management_fee_shares = if time_elapsed > 0 && total_supply > 0 {
+        // Annual management fee converted to per-second rate
+        let annual_mgmt_fee = (gross_assets * fee_config.management_fee_bps) / fee_constants::BASIS_POINTS_SCALE;
+        let mgmt_fee_assets = (annual_mgmt_fee * time_elapsed.into()) / fee_constants::SECONDS_PER_YEAR.into();
+        
+        // Convert to shares
+        (mgmt_fee_assets * total_supply) / gross_assets
+    } else {
+        0
+    };
+    
+    FeePreview {
+        management_fee_shares,
+        performance_fee_shares,
+        total_fee_shares: management_fee_shares + performance_fee_shares,
+        projected_profit: profit,
+        time_since_last_harvest: time_elapsed,
+    }
+}
+
+// Execute harvest - collect fees and update high water mark
+pub fn harvest(
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig,
+    mut fee_config: FeeConfig,
+    total_supply: u256,
+    current_timestamp: u64,
+    caller: ContractAddress,
+    keeper_config: KeeperConfig
+) -> Result<(FeeConfig, u256, u256, super::interfaces::FeesCharged, super::interfaces::HarvestExecuted), felt252> {
+    // Check keeper authorization
+    if caller != keeper_config.keeper || !keeper_config.authorized {
+        return Err('Unauthorized keeper');
+    }
+    
+    // Calculate gross assets before harvest
+    let gross_assets_before = total_assets_with_strategy(vault_balance, vesu_config);
+    
+    // Preview fees to calculate
+    let fee_preview = preview_fees(vault_balance, vesu_config, fee_config, total_supply, current_timestamp);
+    
+    // Update fee config
+    fee_config.last_fee_timestamp = current_timestamp;
+    
+    // Update high water mark only if we have profit
+    let new_high_water_mark = if fee_preview.projected_profit > 0 {
+        // HWM updates to total assets after minting fee shares
+        let assets_after_fees = gross_assets_before; // Simplified for demonstration
+        if assets_after_fees > fee_config.high_water_mark {
+            assets_after_fees
+        } else {
+            fee_config.high_water_mark
+        }
+    } else {
+        fee_config.high_water_mark
+    };
+    
+    fee_config.high_water_mark = new_high_water_mark;
+    
+    // Create events
+    let fees_charged_event = super::interfaces::FeesCharged {
+        vault: fee_config.treasury, // Using treasury as vault identifier
+        performance_fee_shares: fee_preview.performance_fee_shares,
+        management_fee_shares: fee_preview.management_fee_shares,
+        total_fee_shares: fee_preview.total_fee_shares,
+        high_water_mark: new_high_water_mark,
+        timestamp: current_timestamp,
+    };
+    
+    let harvest_event = super::interfaces::HarvestExecuted {
+        vault: fee_config.treasury,
+        keeper: caller,
+        gross_assets_before,
+        gross_assets_after: new_high_water_mark, // Approximation
+        profit: fee_preview.projected_profit,
+        timestamp: current_timestamp,
+    };
+    
+    Result::Ok((
+        fee_config,
+        fee_preview.management_fee_shares,
+        fee_preview.performance_fee_shares,
+        fees_charged_event,
+        harvest_event
+    ))
+}
+
+// Validate fee configuration
+pub fn validate_fee_config(fee_config: FeeConfig) -> Result<(), felt252> {
+    if fee_config.management_fee_bps > fee_constants::MAX_MANAGEMENT_FEE {
+        return Err('Management fee too high');
+    }
+    
+    if fee_config.performance_fee_bps > fee_constants::MAX_PERFORMANCE_FEE {
+        return Err('Performance fee too high');
+    }
+    
+    Result::Ok(())
+}
+
+// Authorize or deauthorize keeper
+pub fn update_keeper(
+    mut keeper_config: KeeperConfig,
+    new_keeper: ContractAddress,
+    authorized: bool,
+    caller: ContractAddress,
+    owner: ContractAddress
+) -> Result<(KeeperConfig, super::interfaces::KeeperUpdated), felt252> {
+    // Only owner can update keepers
+    if caller != owner {
+        return Err('Only owner can update keeper');
+    }
+    
+    keeper_config.keeper = new_keeper;
+    keeper_config.authorized = authorized;
+    
+    let event = super::interfaces::KeeperUpdated {
+        vault: owner,
+        keeper: new_keeper,
+        authorized,
+    };
+    
+    Result::Ok((keeper_config, event))
+}
+
+// Helper to create default fee config
+pub fn get_default_fee_config(treasury: ContractAddress, current_timestamp: u64) -> FeeConfig {
+    FeeConfig {
+        treasury,
+        management_fee_bps: 200, // 2% annual management fee
+        performance_fee_bps: 2000, // 20% performance fee
+        last_fee_timestamp: current_timestamp,
+        high_water_mark: 0, // Start with 0, will be set on first harvest
+    }
+}
+
+// Helper to create default keeper config
+pub fn get_default_keeper_config(keeper: ContractAddress) -> KeeperConfig {
+    KeeperConfig {
+        keeper,
+        authorized: true,
+    }
+}
+
+// Calculate shares to mint for fees (helper function)
+pub fn calculate_fee_shares(
+    fee_assets: u256,
+    total_assets: u256,
+    total_supply: u256
+) -> u256 {
+    if total_supply == 0 || total_assets == 0 {
+        return fee_assets; // 1:1 if no existing shares
+    }
+    
+    // shares = fee_assets * total_supply / total_assets
+    (fee_assets * total_supply) / total_assets
+}
+
+// Get time-weighted management fee calculation
+pub fn calculate_time_weighted_management_fee(
+    total_assets: u256,
+    management_fee_bps: u256,
+    time_elapsed_seconds: u64
+) -> u256 {
+    if total_assets == 0 || time_elapsed_seconds == 0 {
+        return 0;
+    }
+    
+    // Annual fee converted to time-weighted fee
+    let annual_fee = (total_assets * management_fee_bps) / fee_constants::BASIS_POINTS_SCALE;
+    (annual_fee * time_elapsed_seconds.into()) / fee_constants::SECONDS_PER_YEAR.into()
 }
