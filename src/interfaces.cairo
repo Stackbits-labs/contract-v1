@@ -27,6 +27,32 @@ pub struct Withdraw {
     pub shares: u256,
 }
 
+// Vesu Strategy Events for monitoring investments
+#[derive(Drop, starknet::Event)]
+pub struct Invest {
+    #[key]
+    pub vault: ContractAddress,
+    pub assets: u256,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct Divest {
+    #[key]
+    pub vault: ContractAddress,
+    pub assets: u256,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct Rebalance {
+    #[key]
+    pub vault: ContractAddress,
+    pub idle_before: u256,
+    pub idle_after: u256,
+    pub target_idle_bps: u256,
+}
+
 // SNIP-22 Vault Interface (ERC-4626 compatible)
 #[starknet::interface]
 pub trait ISnip22Vault<TContractState> {
