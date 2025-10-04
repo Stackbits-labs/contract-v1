@@ -87,6 +87,62 @@ pub struct KeeperUpdated {
     pub authorized: bool,
 }
 
+// Access Control Events
+#[derive(Drop, starknet::Event)]
+pub struct OwnershipTransferInitiated {
+    #[key]
+    pub previous_owner: ContractAddress,
+    #[key] 
+    pub new_owner: ContractAddress,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct OwnershipTransferred {
+    #[key]
+    pub previous_owner: ContractAddress,
+    #[key]
+    pub new_owner: ContractAddress,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct RoleUpdated {
+    #[key]
+    pub role: felt252,
+    #[key]
+    pub account: ContractAddress,
+    #[key]
+    pub granted_by: ContractAddress,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct Paused {
+    #[key]
+    pub paused_by: ContractAddress,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct Unpaused {
+    #[key]
+    pub unpaused_by: ContractAddress,
+    pub timestamp: u64,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct EmergencyTokenRescue {
+    #[key]
+    pub token: ContractAddress,
+    #[key]
+    pub to: ContractAddress,
+    #[key]
+    pub rescued_by: ContractAddress,
+    pub amount: u256,
+    pub timestamp: u64,
+}
+
 // SNIP-22 Vault Interface (ERC-4626 compatible)
 #[starknet::interface]
 pub trait ISnip22Vault<TContractState> {

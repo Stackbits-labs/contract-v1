@@ -5,3 +5,4 @@ pub mod interfaces;
 pub mod utils;
 pub mod swbtc;
 pub mod vault_swbtc;
+pub mod access_control;

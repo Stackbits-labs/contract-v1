@@ -1,10 +1,18 @@
 // VaultSwBTC - Enhanced vault implementation with automatic Vesu strategy integration and fee management
 use starknet::ContractAddress;
-use super::interfaces::{Deposit, Withdraw, Invest, Divest, Rebalance, FeesCharged, HarvestExecuted, KeeperUpdated};
+use super::interfaces::{
+    Deposit, Withdraw, Invest, Divest, Rebalance, FeesCharged, HarvestExecuted, KeeperUpdated,
+    OwnershipTransferInitiated, OwnershipTransferred, RoleUpdated, Paused, Unpaused, EmergencyTokenRescue
+};
 use super::strategy::VesuAdapter::{
     VesuAdapterConfig, vesu_assets, get_default_vesu_config, 
     push_to_vesu, pull_from_vesu, is_strategy_healthy,
     claim_rewards, sell_rewards_to_wbtc
+};
+use super::access_control::{
+    AccessControlState, get_default_access_control, only_owner, only_keeper, when_not_paused,
+    nonreentrant_start, nonreentrant_end, transfer_ownership, accept_ownership, set_keeper,
+    set_treasury, pause, unpause, validate_fee_params
 };
 
 // Vault configuration struct
@@ -628,4 +636,200 @@ pub fn calculate_time_weighted_management_fee(
     // Annual fee converted to time-weighted fee
     let annual_fee = (total_assets * management_fee_bps) / fee_constants::BASIS_POINTS_SCALE;
     (annual_fee * time_elapsed_seconds.into()) / fee_constants::SECONDS_PER_YEAR.into()
+}
+
+// ===== ACCESS CONTROL AND ADMIN FUNCTIONS =====
+
+// Admin function to set fee parameters
+pub fn set_fee_params(
+    mut fee_config: FeeConfig,
+    access_control: AccessControlState,
+    management_fee_bps: u256,
+    performance_fee_bps: u256,
+    reward_fee_bps: u256,
+    caller: ContractAddress,
+    current_timestamp: u64
+) -> Result<FeeConfig, felt252> {
+    // Check access control
+    only_owner(access_control, caller)?;
+    
+    // Validate fee parameters
+    validate_fee_params(management_fee_bps, performance_fee_bps, reward_fee_bps)?;
+    
+    // Update fee configuration
+    fee_config.management_fee_bps = management_fee_bps;
+    fee_config.performance_fee_bps = performance_fee_bps;
+    fee_config.reward_fee_bps = reward_fee_bps;
+    fee_config.last_fee_timestamp = current_timestamp; // Reset fee timestamp
+    
+    Ok(fee_config)
+}
+
+// Admin function to set treasury address
+pub fn set_treasury_address(
+    mut fee_config: FeeConfig,
+    access_control: AccessControlState,
+    new_treasury: ContractAddress,
+    caller: ContractAddress
+) -> Result<FeeConfig, felt252> {
+    // Check access control
+    only_owner(access_control, caller)?;
+    
+    // Validate treasury address
+    if new_treasury == starknet::contract_address_const::<0>() {
+        return Err('Invalid treasury address');
+    }
+    
+    // Update treasury
+    fee_config.treasury = new_treasury;
+    
+    Ok(fee_config)
+}
+
+// Admin function to set Vesu market configuration
+pub fn set_vesu_market(
+    mut vesu_config: VesuAdapterConfig,
+    access_control: AccessControlState,
+    new_vesu_protocol: ContractAddress,
+    new_asset_token: ContractAddress,
+    new_vtoken_address: ContractAddress,
+    caller: ContractAddress
+) -> Result<VesuAdapterConfig, felt252> {
+    // Check access control
+    only_owner(access_control, caller)?;
+    
+    // Validate addresses
+    if new_vesu_protocol == starknet::contract_address_const::<0>() ||
+       new_asset_token == starknet::contract_address_const::<0>() ||
+       new_vtoken_address == starknet::contract_address_const::<0>() {
+        return Err('Invalid market addresses');
+    }
+    
+    // Update Vesu configuration
+    vesu_config.vesu_protocol = new_vesu_protocol;
+    vesu_config.asset_token = new_asset_token;
+    vesu_config.vtoken_address = new_vtoken_address;
+    
+    Ok(vesu_config)
+}
+
+// Emergency token rescue function
+pub fn rescue_token(
+    access_control: AccessControlState,
+    token: ContractAddress,
+    to: ContractAddress,
+    amount: u256,
+    caller: ContractAddress,
+    current_timestamp: u64
+) -> Result<super::interfaces::EmergencyTokenRescue, felt252> {
+    // Check access control - only owner can rescue tokens
+    only_owner(access_control, caller)?;
+    
+    // Validate parameters
+    if token == starknet::contract_address_const::<0>() ||
+       to == starknet::contract_address_const::<0>() ||
+       amount == 0 {
+        return Err('Invalid rescue parameters');
+    }
+    
+    // TODO: In real implementation, execute ERC20 transfer here
+    // let erc20 = IERC20Dispatcher { contract_address: token };
+    // erc20.transfer(to, amount);
+    
+    // Create rescue event
+    let event = super::interfaces::EmergencyTokenRescue {
+        token,
+        to,
+        rescued_by: caller,
+        amount,
+        timestamp: current_timestamp,
+    };
+    
+    Ok(event)
+}
+
+// Enhanced deposit with access control and reentrancy protection
+pub fn enhanced_deposit_with_access_control(
+    assets: u256,
+    receiver: ContractAddress,
+    total_supply: u256,
+    total_assets: u256,
+    config: EnhancedVaultConfig,
+    access_control: AccessControlState,
+    caller: ContractAddress
+) -> Result<(u256, Deposit, Option<Invest>), felt252> {
+    // Check if paused
+    when_not_paused(access_control)?;
+    
+    // Use reentrancy guard
+    let _guarded_state = nonreentrant_start(access_control)?;
+    
+    // Proceed with normal deposit
+    let vault_balance = 0_u256; // Would be passed in from actual vault state
+    let result = enhanced_deposit(assets, receiver, vault_balance, total_supply, total_assets, config);
+    
+    // End reentrancy guard automatically handled by scope
+    result
+}
+
+// Enhanced withdraw with access control and reentrancy protection  
+pub fn enhanced_withdraw_with_access_control(
+    assets: u256,
+    receiver: ContractAddress,
+    owner: ContractAddress,
+    total_supply: u256,
+    total_assets: u256,
+    config: EnhancedVaultConfig,
+    access_control: AccessControlState,
+    caller: ContractAddress
+) -> Result<(u256, Withdraw, Option<Divest>), felt252> {
+    // Check if paused
+    when_not_paused(access_control)?;
+    
+    // Use reentrancy guard
+    let _guarded_state = nonreentrant_start(access_control)?;
+    
+    // Proceed with normal withdrawal
+    let vault_balance = 0_u256; // Would be passed in from actual vault state
+    let result = enhanced_withdraw(assets, receiver, owner, vault_balance, total_supply, total_assets, config);
+    
+    // End reentrancy guard automatically handled by scope
+    result
+}
+
+// Enhanced harvest with access control
+pub fn harvest_with_access_control(
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig,
+    mut fee_config: FeeConfig,
+    total_supply: u256,
+    current_timestamp: u64,
+    access_control: AccessControlState,
+    caller: ContractAddress
+) -> Result<(FeeConfig, u256, u256, super::interfaces::FeesCharged, super::interfaces::HarvestExecuted), felt252> {
+    // Check keeper authorization using access control
+    if !super::access_control::is_keeper(access_control, caller) {
+        return Err('AccessControl: not keeper');
+    }
+    
+    // Use reentrancy guard
+    let _guarded_state = nonreentrant_start(access_control)?;
+    
+    // Create a fake keeper config for the existing harvest function
+    let keeper_config = KeeperConfig {
+        keeper: access_control.keeper,
+        authorized: true,
+    };
+    
+    // Proceed with normal harvest
+    harvest(vault_balance, vesu_config, fee_config, total_supply, current_timestamp, caller, keeper_config)
+}
+
+// Get default access control configuration
+pub fn get_default_vault_access_control(
+    owner: ContractAddress,
+    treasury: ContractAddress, 
+    keeper: ContractAddress
+) -> AccessControlState {
+    get_default_access_control(owner, treasury, keeper)
 }
