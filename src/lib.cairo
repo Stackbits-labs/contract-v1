@@ -3,3 +3,5 @@ pub mod vault;
 pub mod strategy; 
 pub mod interfaces;
 pub mod utils;
+pub mod swbtc;
+pub mod vault_swbtc;

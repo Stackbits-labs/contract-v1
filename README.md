@@ -10,6 +10,7 @@ A modular vault system built with Cairo 2.x for Starknet.
 │   ├── vault.cairo         # Vault core functionality
 │   ├── strategy.cairo      # Investment strategies
 │   ├── interfaces.cairo    # Contract interfaces
+│   ├── swbtc.cairo        # swBTC ERC-20 share token
 │   └── utils.cairo        # Utility functions
 ├── tests/
 │   └── test_contract.cairo # Unit tests
@@ -73,6 +74,15 @@ Investment strategy implementations.
 - **ISnip22Vault** - SNIP-22 (ERC-4626-like) compliant vault interface with full deposit/withdraw/mint/redeem functionality
 - **IVault** - Legacy vault interface for backwards compatibility  
 - **IStrategy** - Strategy contract interface for investment management
+
+### swBTC Token (`src/swbtc.cairo`)
+ERC-20 compliant share token with:
+- **Name:** "Staked Wrapped BTC" 
+- **Symbol:** "swBTC"
+- **Decimals:** 18 (configurable)
+- **Role-based Access:** Only vault can mint/burn tokens
+- **Standard Events:** Transfer, Approval
+- **Optional:** Permit support for gasless approvals
 
 ### Utils (`src/utils.cairo`)
 Utility functions including math operations and constants.
