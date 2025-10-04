@@ -1,6 +1,9 @@
 // Base strategy implementation
 use starknet::ContractAddress;
 
+// Include Vesu Adapter strategy
+pub mod VesuAdapter;
+
 /// Strategy information struct
 #[derive(Copy, Drop, Serde, starknet::Store)]
 pub struct StrategyInfo {

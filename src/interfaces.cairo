@@ -1,6 +1,9 @@
 // SNIP-22 (ERC-4626-like) Vault Interface Definitions
 use starknet::ContractAddress;
 
+// Include Vesu Protocol interfaces
+pub mod IVesu;
+
 // SNIP-22 Vault Events
 #[derive(Drop, starknet::Event)]
 pub struct Deposit {

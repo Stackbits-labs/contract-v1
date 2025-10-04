@@ -1,6 +1,7 @@
-// VaultSwBTC - Simplified vault implementation for demonstration
+// VaultSwBTC - Simplified vault implementation for demonstration with Vesu integration
 use starknet::ContractAddress;
 use super::interfaces::{Deposit, Withdraw};
+use super::strategy::VesuAdapter::{VesuAdapterConfig, vesu_assets, get_default_vesu_config};
 
 // Vault configuration struct
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -84,4 +85,39 @@ pub fn simulate_withdraw(
         shares,
     };
     (shares, event)
+}
+
+// Enhanced totalAssets function that includes Vesu strategy
+pub fn total_assets_with_strategy(
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig
+) -> u256 {
+    // Calculate total assets = vault balance + assets deployed in Vesu
+    let vesu_deployed_assets = vesu_assets(vesu_config);
+    vault_balance + vesu_deployed_assets
+}
+
+// Vault management with strategy integration
+pub fn can_withdraw_from_vault(
+    requested_assets: u256,
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig
+) -> bool {
+    let total_available = total_assets_with_strategy(vault_balance, vesu_config);
+    total_available >= requested_assets
+}
+
+pub fn calculate_withdrawal_sources(
+    requested_assets: u256,
+    vault_balance: u256,
+    vesu_config: VesuAdapterConfig
+) -> (u256, u256) {
+    // Returns (from_vault, from_vesu)
+    if vault_balance >= requested_assets {
+        (requested_assets, 0)
+    } else {
+        let from_vault = vault_balance;
+        let from_vesu = requested_assets - vault_balance;
+        (from_vault, from_vesu)
+    }
 }
