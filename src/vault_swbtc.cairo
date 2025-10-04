@@ -3,7 +3,8 @@ use starknet::ContractAddress;
 use super::interfaces::{Deposit, Withdraw, Invest, Divest, Rebalance, FeesCharged, HarvestExecuted, KeeperUpdated};
 use super::strategy::VesuAdapter::{
     VesuAdapterConfig, vesu_assets, get_default_vesu_config, 
-    push_to_vesu, pull_from_vesu, is_strategy_healthy
+    push_to_vesu, pull_from_vesu, is_strategy_healthy,
+    claim_rewards, sell_rewards_to_wbtc
 };
 
 // Vault configuration struct
@@ -335,6 +336,7 @@ pub struct FeeConfig {
     pub treasury: ContractAddress,
     pub management_fee_bps: u256,    // Management fee in basis points (e.g., 200 = 2% annual)
     pub performance_fee_bps: u256,   // Performance fee in basis points (e.g., 2000 = 20%)
+    pub reward_fee_bps: u256,        // Reward fee in basis points (e.g., 500 = 5% of rewards)
     pub last_fee_timestamp: u64,     // Last time fees were charged
     pub high_water_mark: u256,       // High water mark for performance fees
 }
@@ -450,10 +452,48 @@ pub fn harvest(
         return Err('Unauthorized keeper');
     }
     
-    // Calculate gross assets before harvest
-    let gross_assets_before = total_assets_with_strategy(vault_balance, vesu_config);
+    // Step 1: Claim rewards from Vesu Protocol
+    let rewards_claimed = match claim_rewards(vesu_config) {
+        Result::Ok(amount) => amount,
+        Result::Err(_) => 0, // Continue harvest even if reward claiming fails
+    };
     
-    // Preview fees to calculate
+    let mut compounded_amount = 0_u256;
+    
+    // Step 2: Process rewards if any were claimed
+    if rewards_claimed > 0 {
+        // Calculate reward fee for treasury
+        let treasury_reward_fee = (rewards_claimed * fee_config.reward_fee_bps) / fee_constants::BASIS_POINTS_SCALE;
+        let net_rewards = rewards_claimed - treasury_reward_fee;
+        
+        // Step 3: Sell remaining rewards to wBTC with slippage protection
+        if net_rewards > 0 {
+            let min_wbtc_out = (net_rewards * 95) / 100; // 5% max slippage tolerance
+            match sell_rewards_to_wbtc(vesu_config, net_rewards, min_wbtc_out) {
+                Result::Ok(wbtc_received) => {
+                    // Step 4: Compound the wBTC back to Vesu (auto-compound)
+                    match push_to_vesu(vesu_config, wbtc_received) {
+                        Result::Ok(_) => {
+                            compounded_amount = wbtc_received;
+                        },
+                        Result::Err(_) => {
+                            // If push fails, keep wBTC in vault (safe fallback)
+                            compounded_amount = 0;
+                        }
+                    }
+                },
+                Result::Err(_) => {
+                    // If selling fails, no compounding occurs
+                    compounded_amount = 0;
+                }
+            }
+        }
+    }
+    
+    // Step 5: Calculate gross assets after reward processing and compounding
+    let gross_assets_after_rewards = total_assets_with_strategy(vault_balance, vesu_config);
+    
+    // Step 6: Calculate fees based on updated total assets
     let fee_preview = preview_fees(vault_balance, vesu_config, fee_config, total_supply, current_timestamp);
     
     // Update fee config
@@ -461,10 +501,9 @@ pub fn harvest(
     
     // Update high water mark only if we have profit
     let new_high_water_mark = if fee_preview.projected_profit > 0 {
-        // HWM updates to total assets after minting fee shares
-        let assets_after_fees = gross_assets_before; // Simplified for demonstration
-        if assets_after_fees > fee_config.high_water_mark {
-            assets_after_fees
+        // HWM updates to total assets after compounding and before minting fee shares
+        if gross_assets_after_rewards > fee_config.high_water_mark {
+            gross_assets_after_rewards
         } else {
             fee_config.high_water_mark
         }
@@ -476,7 +515,7 @@ pub fn harvest(
     
     // Create events
     let fees_charged_event = super::interfaces::FeesCharged {
-        vault: fee_config.treasury, // Using treasury as vault identifier
+        vault: fee_config.treasury,
         performance_fee_shares: fee_preview.performance_fee_shares,
         management_fee_shares: fee_preview.management_fee_shares,
         total_fee_shares: fee_preview.total_fee_shares,
@@ -487,9 +526,11 @@ pub fn harvest(
     let harvest_event = super::interfaces::HarvestExecuted {
         vault: fee_config.treasury,
         keeper: caller,
-        gross_assets_before,
-        gross_assets_after: new_high_water_mark, // Approximation
+        gross_assets_before: gross_assets_after_rewards, // After reward processing
+        gross_assets_after: new_high_water_mark,
         profit: fee_preview.projected_profit,
+        rewards_claimed,
+        compounded: compounded_amount,
         timestamp: current_timestamp,
     };
     
@@ -546,6 +587,7 @@ pub fn get_default_fee_config(treasury: ContractAddress, current_timestamp: u64)
         treasury,
         management_fee_bps: 200, // 2% annual management fee
         performance_fee_bps: 2000, // 20% performance fee
+        reward_fee_bps: 500, // 5% of rewards to treasury
         last_fee_timestamp: current_timestamp,
         high_water_mark: 0, // Start with 0, will be set on first harvest
     }

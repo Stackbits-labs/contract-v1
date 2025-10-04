@@ -25,6 +25,7 @@ mod test_fee_management {
             treasury,
             management_fee_bps: 200, // 2% annual
             performance_fee_bps: 2000, // 20%
+            reward_fee_bps: 500, // 5% of rewards
             last_fee_timestamp: current_timestamp - 86400, // 1 day ago
             high_water_mark: 10000000, // 10 wBTC
         }

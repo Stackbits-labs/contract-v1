@@ -184,3 +184,73 @@ pub fn get_strategy_info(config: VesuAdapterConfig) -> (u256, u256, bool) {
     
     (vesu_balance, apy, is_healthy)
 }
+
+// Reward Management Functions
+pub fn claim_rewards(config: VesuAdapterConfig) -> Result<u256, felt252> {
+    // Validate strategy is active
+    if !config.is_active {
+        return Err('Strategy is inactive');
+    }
+    
+    // TODO: Implement actual Vesu reward claiming
+    // This would typically call something like:
+    // let vesu = IVesuDispatcher { contract_address: config.vesu_protocol };
+    // let rewards_claimed = vesu.claimRewards(config.vault_address);
+    
+    // For now, return placeholder amount
+    // In real implementation, this would return actual claimed reward tokens
+    let rewards_claimed = 0_u256; // Placeholder - would be actual rewards
+    
+    if rewards_claimed > 0 {
+        Ok(rewards_claimed)
+    } else {
+        Ok(0)
+    }
+}
+
+pub fn sell_rewards_to_wbtc(config: VesuAdapterConfig, reward_amount: u256, min_out: u256) -> Result<u256, felt252> {
+    // Validate inputs
+    if reward_amount == 0 {
+        return Ok(0);
+    }
+    if !config.is_active {
+        return Err('Strategy is inactive');
+    }
+    
+    // TODO: Implement DEX adapter for reward token swaps
+    // This would involve:
+    // 1. Determine reward token address (from Vesu protocol)
+    // 2. Route through appropriate DEX (UniswapV3, Jediswap, etc.)
+    // 3. Swap reward tokens for wBTC
+    // 4. Apply slippage protection with min_out
+    
+    // Placeholder implementation - DEX adapter stub
+    let wbtc_received = _dex_adapter_stub(reward_amount, min_out)?;
+    
+    // Ensure minimum output requirement
+    if wbtc_received < min_out {
+        return Err('Insufficient output amount');
+    }
+    
+    Ok(wbtc_received)
+}
+
+// DEX Adapter Stub - TODO: Implement with real DEX integration
+fn _dex_adapter_stub(reward_amount: u256, min_out: u256) -> Result<u256, felt252> {
+    // TODO: Replace with actual DEX adapter implementation
+    // This would integrate with Starknet DEXs like:
+    // - Jediswap
+    // - MySwap  
+    // - 10KSwap
+    // - SithSwap
+    
+    // For now, simulate a reasonable conversion rate
+    // In reality, this would call actual DEX contracts
+    let simulated_wbtc_output = reward_amount * 95 / 100; // Assume 5% slippage simulation
+    
+    if simulated_wbtc_output >= min_out {
+        Ok(simulated_wbtc_output)
+    } else {
+        Err('DEX slippage too high')
+    }
+}

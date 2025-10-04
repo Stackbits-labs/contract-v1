@@ -74,6 +74,8 @@ pub struct HarvestExecuted {
     pub gross_assets_before: u256,
     pub gross_assets_after: u256,
     pub profit: u256,
+    pub rewards_claimed: u256,    // Amount of reward tokens claimed from Vesu
+    pub compounded: u256,        // Amount of wBTC compounded back to Vesu
     pub timestamp: u64,
 }
 
