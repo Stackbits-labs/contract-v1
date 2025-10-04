@@ -50,3 +50,10 @@ allow-prebuilt-plugins = ["snforge_std_deprecated"]
 
 # [features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
+
+[profile.release]
+sierra-replace-ids = true
+
+[profile.release.cairo]
+inlining-strategy = "default"
+panic-strategy = "abort"

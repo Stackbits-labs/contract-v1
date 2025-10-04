@@ -1,47 +1,34 @@
-use starknet::ContractAddress;
+use stackbits_vault::vault::{VaultInfo, get_vault_info};
+use stackbits_vault::strategy::{StrategyInfo, get_default_strategy};
+use stackbits_vault::utils::{calculate_percentage, safe_add, MAX_BPS, MIN_DEPOSIT};
 
-use snforge_std_deprecated::{declare, ContractClassTrait, DeclareResultTrait};
-
-use stackbits_vault::IHelloStarknetSafeDispatcher;
-use stackbits_vault::IHelloStarknetSafeDispatcherTrait;
-use stackbits_vault::IHelloStarknetDispatcher;
-use stackbits_vault::IHelloStarknetDispatcherTrait;
-
-fn deploy_contract(name: ByteArray) -> ContractAddress {
-    let contract = declare(name).unwrap().contract_class();
-    let (contract_address, _) = contract.deploy(@ArrayTrait::new()).unwrap();
-    contract_address
+#[test]
+fn test_vault_info() {
+    let vault_info = get_vault_info();
+    assert(vault_info.total_assets == 0, 'Invalid initial assets');
 }
 
 #[test]
-fn test_increase_balance() {
-    let contract_address = deploy_contract("HelloStarknet");
-
-    let dispatcher = IHelloStarknetDispatcher { contract_address };
-
-    let balance_before = dispatcher.get_balance();
-    assert(balance_before == 0, 'Invalid balance');
-
-    dispatcher.increase_balance(42);
-
-    let balance_after = dispatcher.get_balance();
-    assert(balance_after == 42, 'Invalid balance');
+fn test_strategy_info() {
+    let strategy_info = get_default_strategy();
+    assert(strategy_info.name == 'default_strategy', 'Invalid strategy name');
+    assert(strategy_info.active == false, 'Strategy should be inactive');
 }
 
 #[test]
-#[feature("safe_dispatcher")]
-fn test_cannot_increase_balance_with_zero_value() {
-    let contract_address = deploy_contract("HelloStarknet");
-
-    let safe_dispatcher = IHelloStarknetSafeDispatcher { contract_address };
-
-    let balance_before = safe_dispatcher.get_balance().unwrap();
-    assert(balance_before == 0, 'Invalid balance');
-
-    match safe_dispatcher.increase_balance(0) {
-        Result::Ok(_) => core::panic_with_felt252('Should have panicked'),
-        Result::Err(panic_data) => {
-            assert(*panic_data.at(0) == 'Amount cannot be 0', *panic_data.at(0));
-        }
+fn test_math_utils() {
+    let result = calculate_percentage(1000, 10);
+    assert(result == 100, 'Invalid percentage calculation');
+    
+    let safe_result = safe_add(100, 200);
+    match safe_result {
+        Option::Some(value) => assert(value == 300, 'Invalid safe add'),
+        Option::None => core::panic_with_felt252('Safe add should not fail')
     };
+}
+
+#[test]
+fn test_constants() {
+    assert(MAX_BPS == 10000, 'Invalid MAX_BPS');
+    assert(MIN_DEPOSIT == 1000, 'Invalid MIN_DEPOSIT');
 }
