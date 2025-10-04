@@ -70,10 +70,32 @@ Core vault functionality for asset management.
 Investment strategy implementations.
 
 ### Interfaces (`src/interfaces.cairo`)
-Contract interfaces and traits for vault and strategy interactions.
+- **ISnip22Vault** - SNIP-22 (ERC-4626-like) compliant vault interface with full deposit/withdraw/mint/redeem functionality
+- **IVault** - Legacy vault interface for backwards compatibility  
+- **IStrategy** - Strategy contract interface for investment management
 
 ### Utils (`src/utils.cairo`)
 Utility functions including math operations and constants.
+
+## SNIP-22 Interface Features
+
+The `ISnip22Vault` interface provides ERC-4626 compatible functionality:
+
+**View Functions:**
+- `total_assets()` - Total assets under management
+- `convert_to_shares(assets)` / `convert_to_assets(shares)` - Conversion functions
+- `preview_deposit/mint/withdraw/redeem()` - Preview exact amounts for operations
+- `max_deposit/mint/withdraw/redeem()` - Maximum operation limits
+
+**External Functions:**
+- `deposit(assets, receiver)` - Deposit assets, receive shares
+- `mint(shares, receiver)` - Mint specific shares amount  
+- `withdraw(assets, receiver, owner)` - Withdraw specific assets amount
+- `redeem(shares, receiver, owner)` - Redeem shares for assets
+
+**Events:**
+- `Deposit(user, receiver, assets, shares)` - Emitted on deposits/mints
+- `Withdraw(user, receiver, owner, assets, shares)` - Emitted on withdrawals/redeems
 
 ## CI/CD
 
