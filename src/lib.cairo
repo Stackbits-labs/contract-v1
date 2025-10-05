@@ -109,7 +109,7 @@ mod StackBitsVault {
         }
 
         fn get_total_assets(self: @ContractState) -> u256 {
-            self.total_assets.read()
+            self.get_total_vesu_assets()
         }
 
         fn is_paused(self: @ContractState) -> bool {
@@ -146,11 +146,9 @@ mod StackBitsVault {
             let shares = self.convert_assets_to_shares(assets);
             
             let current_supply = self.total_supply.read();
-            let current_assets = self.total_assets.read();
             
-            // Update state
+            // Update state (no need to track total_assets manually - use get_total_vesu_assets())
             self.total_supply.write(current_supply + shares);
-            self.total_assets.write(current_assets + assets);
             
             let user_balance = self.balances.read(caller);
             self.balances.write(caller, user_balance + shares);
@@ -185,11 +183,9 @@ mod StackBitsVault {
             // Step 1: Withdraw exact assets from Vesu vault
             let _vesu_shares_burned = vesu_contract.withdraw(assets, vault_address, vault_address);
             
-            // Step 2: Update vault state
+            // Step 2: Update vault state (no need to track total_assets manually)
             let current_supply = self.total_supply.read();
-            let current_assets = self.total_assets.read();
             self.total_supply.write(current_supply - shares);
-            self.total_assets.write(current_assets - assets);
             self.balances.write(caller, user_balance - shares);
             
             // Step 3: Transfer wBTC to user
@@ -278,16 +274,6 @@ mod StackBitsVault {
             // assets = shares * total_assets / total_supply
             (shares * total_assets) / total_supply
         }
-
-        // User portfolio information
-        fn get_user_portfolio(self: @ContractState, user: ContractAddress) -> (u256, u256, u256) {
-            let user_shares = self.balances.read(user);
-            let current_assets = self.convert_shares_to_assets(user_shares);
-            let share_price = self.get_share_price();
-            
-            // Returns (user_shares, current_assets_value, current_share_price)
-            (user_shares, current_assets, share_price)
-        }
     }
 
     #[starknet::interface]
@@ -304,7 +290,6 @@ mod StackBitsVault {
         fn get_share_price(self: @TContractState) -> u256;
         fn convert_assets_to_shares(self: @TContractState, assets: u256) -> u256;
         fn convert_shares_to_assets(self: @TContractState, shares: u256) -> u256;
-        fn get_user_portfolio(self: @TContractState, user: ContractAddress) -> (u256, u256, u256);
         fn deposit(ref self: TContractState, assets: u256) -> u256;
         fn withdraw(ref self: TContractState, shares: u256) -> u256;
         fn pause(ref self: TContractState);
