@@ -32,6 +32,9 @@ trait IVesu<TContractState> {
     fn redeem(ref self: TContractState, shares: u256, receiver: ContractAddress, owner: ContractAddress) -> u256;
     fn max_redeem(self: @TContractState, owner: ContractAddress) -> u256;
     fn max_withdraw(self: @TContractState, owner: ContractAddress) -> u256;
+    fn convert_to_assets(self: @TContractState, shares: u256) -> u256;
+    fn convert_to_shares(self: @TContractState, assets: u256) -> u256;
+    fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
 }
 
 #[starknet::contract]
@@ -139,11 +142,11 @@ mod StackBitsVault {
             let vesu_contract = IVesuDispatcher { contract_address: vesu_vault };
             let _vesu_shares = vesu_contract.deposit(assets, vault_address);
             
+            // Calculate shares based on current share price (includes yield)
+            let shares = self.convert_assets_to_shares(assets);
+            
             let current_supply = self.total_supply.read();
             let current_assets = self.total_assets.read();
-            
-            // Issue vault shares 1:1 with deposited assets
-            let shares = assets;
             
             // Update state
             self.total_supply.write(current_supply + shares);
@@ -171,8 +174,8 @@ mod StackBitsVault {
             let vault_address = get_contract_address();
             let vesu_vault = self.vesu_vault.read();
             
-            // Calculate assets to withdraw (1:1 ratio for now)
-            let assets = shares;
+            // Calculate assets to withdraw based on current share price (includes yield)
+            let assets = self.convert_shares_to_assets(shares);
             
             // Use Vesu withdraw (specify exact assets) instead of redeem
             let vesu_contract = IVesuDispatcher { contract_address: vesu_vault };
@@ -231,66 +234,59 @@ mod StackBitsVault {
             vesu_contract.max_redeem(vault_address)
         }
 
-        fn withdraw_from_vesu(ref self: ContractState, assets: u256) -> u256 {
-            assert!(!self.paused.read(), "Contract is paused");
-            assert!(assets > 0, "Cannot withdraw zero assets");
-            
-            let caller = get_caller_address();
+        fn get_total_vesu_assets(self: @ContractState) -> u256 {
             let vault_address = get_contract_address();
             let vesu_vault = self.vesu_vault.read();
-            
-            // Check max withdrawable assets from Vesu
             let vesu_contract = IVesuDispatcher { contract_address: vesu_vault };
-            let max_assets = vesu_contract.max_withdraw(vault_address);
-            assert!(assets <= max_assets, "Insufficient Vesu assets");
             
-            // Withdraw specific assets from Vesu
-            let shares_burned = vesu_contract.withdraw(assets, vault_address, vault_address);
+            // Get current Vesu shares owned by vault  
+            let vesu_shares = vesu_contract.balance_of(vault_address);
             
-            // Transfer wBTC to caller
-            let wbtc_token = self.wbtc_token.read();
-            let wbtc_contract = IERC20Dispatcher { contract_address: wbtc_token };
-            let transfer_success = wbtc_contract.transfer(caller, assets);
-            assert!(transfer_success, "wBTC transfer failed");
-
-            self.emit(Event::Withdraw(Withdraw {
-                user: caller,
-                assets,
-                shares: shares_burned,
-            }));
-
-            shares_burned
+            // Convert Vesu shares to assets (this includes yield from Vesu)
+            vesu_contract.convert_to_assets(vesu_shares)
         }
 
-        fn redeem_from_vesu(ref self: ContractState, shares: u256) -> u256 {
-            assert!(!self.paused.read(), "Contract is paused");
-            assert!(shares > 0, "Cannot redeem zero shares");
+        fn get_share_price(self: @ContractState) -> u256 {
+            let total_supply = self.total_supply.read();
+            if total_supply == 0 {
+                return 1000000; // 1.0 with 6 decimals
+            }
             
-            let caller = get_caller_address();
-            let vault_address = get_contract_address();
-            let vesu_vault = self.vesu_vault.read();
-            
-            // Check max redeemable shares from Vesu
-            let vesu_contract = IVesuDispatcher { contract_address: vesu_vault };
-            let max_shares = vesu_contract.max_redeem(vault_address);
-            assert!(shares <= max_shares, "Insufficient Vesu shares");
-            
-            // Redeem specific shares from Vesu
-            let assets_received = vesu_contract.redeem(shares, vault_address, vault_address);
-            
-            // Transfer wBTC to caller
-            let wbtc_token = self.wbtc_token.read();
-            let wbtc_contract = IERC20Dispatcher { contract_address: wbtc_token };
-            let transfer_success = wbtc_contract.transfer(caller, assets_received);
-            assert!(transfer_success, "wBTC transfer failed");
+            let total_assets = self.get_total_vesu_assets();
+            // Share price = total_assets / total_supply (scaled by 1e6)
+            (total_assets * 1000000) / total_supply
+        }
 
-            self.emit(Event::Withdraw(Withdraw {
-                user: caller,
-                assets: assets_received,
-                shares,
-            }));
+        fn convert_assets_to_shares(self: @ContractState, assets: u256) -> u256 {
+            let total_supply = self.total_supply.read();
+            if total_supply == 0 {
+                return assets; // First deposit: 1:1 ratio
+            }
+            
+            let total_assets = self.get_total_vesu_assets();
+            // shares = assets * total_supply / total_assets
+            (assets * total_supply) / total_assets
+        }
 
-            assets_received
+        fn convert_shares_to_assets(self: @ContractState, shares: u256) -> u256 {
+            let total_supply = self.total_supply.read();
+            if total_supply == 0 {
+                return 0;
+            }
+            
+            let total_assets = self.get_total_vesu_assets();
+            // assets = shares * total_assets / total_supply
+            (shares * total_assets) / total_supply
+        }
+
+        // User portfolio information
+        fn get_user_portfolio(self: @ContractState, user: ContractAddress) -> (u256, u256, u256) {
+            let user_shares = self.balances.read(user);
+            let current_assets = self.convert_shares_to_assets(user_shares);
+            let share_price = self.get_share_price();
+            
+            // Returns (user_shares, current_assets_value, current_share_price)
+            (user_shares, current_assets, share_price)
         }
     }
 
@@ -304,10 +300,13 @@ mod StackBitsVault {
         fn get_wbtc_token(self: @TContractState) -> ContractAddress;
         fn get_vesu_vault(self: @TContractState) -> ContractAddress;
         fn get_vesu_position(self: @TContractState) -> u256;
+        fn get_total_vesu_assets(self: @TContractState) -> u256;
+        fn get_share_price(self: @TContractState) -> u256;
+        fn convert_assets_to_shares(self: @TContractState, assets: u256) -> u256;
+        fn convert_shares_to_assets(self: @TContractState, shares: u256) -> u256;
+        fn get_user_portfolio(self: @TContractState, user: ContractAddress) -> (u256, u256, u256);
         fn deposit(ref self: TContractState, assets: u256) -> u256;
         fn withdraw(ref self: TContractState, shares: u256) -> u256;
-        fn withdraw_from_vesu(ref self: TContractState, assets: u256) -> u256;
-        fn redeem_from_vesu(ref self: TContractState, shares: u256) -> u256;
         fn pause(ref self: TContractState);
         fn unpause(ref self: TContractState);
     }
