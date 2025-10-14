@@ -1,0 +1,7 @@
+# Visit https://foundry-rs.github.io/starknet-foundry/appendix/snfoundry-toml.html for more information
+
+[sncast.default]
+url = "http://127.0.0.1:5050/rpc"
+
+[snforge]
+exit_first = false
