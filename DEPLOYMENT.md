@@ -98,8 +98,8 @@ sncast --account=mainnet deploy \
 ### **2. Test on Testnet First**
 ```bash
 # Testnet addresses for testing:
-wBTC Testnet: 0x0496bef3ed20371382fBe0CA6A5a64252c5c848F9f1F0ccCF8110Fc4def912d5
-Vesu Testnet: [FIND_TESTNET_VAULT_ADDRESS]
+wBTC Testnet: 0x04861ba938aed21f2cd7740acd3765ac4d2974783a3218367233de0153490cb6
+vToken Testnet: 0x033d52ef1746ab58c5a22f8e4d80eaaf7c5a08fcfaa6c5e5365680d0ed482f34
 ```
 
 ### **3. Contract Verification**
