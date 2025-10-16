@@ -50,9 +50,9 @@ trait IStackBitsToken<TContractState> {
     ) -> bool;
     fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
     
-    // Vault functions
-    fn deposit(ref self: TContractState, assets: u256) -> u256;
-    fn withdraw(ref self: TContractState, shares: u256) -> u256;
+    // Vault functions - User facing
+    fn deposit_wbtc(ref self: TContractState, assets: u256) -> u256;
+    fn withdraw_wbtc(ref self: TContractState, shares: u256) -> u256;
     fn get_total_assets(self: @TContractState) -> u256;
     fn get_total_wbtc_deposited(self: @TContractState) -> u256;
     
@@ -281,11 +281,11 @@ mod StackBitsTokenVault {
         // 🏦 VAULT POOL SECTION  
         // ============================================
         
-        fn deposit(ref self: ContractState, assets: u256) -> u256 {
+        fn deposit_wbtc(ref self: ContractState, assets: u256) -> u256 {
             self._vault_deposit(assets)
         }
 
-        fn withdraw(ref self: ContractState, shares: u256) -> u256 {
+        fn withdraw_wbtc(ref self: ContractState, shares: u256) -> u256 {
             self._vault_withdraw(shares)
         }
 
