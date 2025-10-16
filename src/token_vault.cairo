@@ -426,10 +426,10 @@ mod StackBitsTokenVault {
             // Calculate proportional assets to withdraw
             let assets = self._calculate_withdrawal_assets(shares);
             
-            // Execute withdrawal
+            // Execute withdrawal - IMPORTANT: Update tracking BEFORE burning shares
             self._withdraw_from_vesu(assets);
+            self._update_withdrawal_tracking(shares); // ← Move this BEFORE _burn_shares
             self._burn_shares(caller, shares);
-            self._update_withdrawal_tracking(shares);
             self._transfer_wbtc_to_user(caller, assets);
             
             // Emit event
@@ -469,6 +469,8 @@ mod StackBitsTokenVault {
 
         fn _calculate_withdrawal_assets(self: @ContractState, shares: u256) -> u256 {
             let total_supply = self.total_supply.read();
+            assert!(total_supply > 0, "No tokens in circulation");
+            
             let total_vesu_assets = self._get_vesu_total_assets();
             (shares * total_vesu_assets) / total_supply
         }
@@ -498,6 +500,8 @@ mod StackBitsTokenVault {
 
         fn _update_withdrawal_tracking(ref self: ContractState, shares: u256) {
             let total_supply = self.total_supply.read();
+            assert!(total_supply > 0, "No tokens in circulation");
+            
             let current_deposited = self.total_wbtc_deposited.read();
             let deposited_to_reduce = (shares * current_deposited) / total_supply;
             self.total_wbtc_deposited.write(current_deposited - deposited_to_reduce);
