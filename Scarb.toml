@@ -7,9 +7,15 @@ edition = "2024_07"
 
 [dependencies]
 starknet = "2.11.4"
+alexandria_math = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
+alexandria_storage = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
+alexandria_data_structures = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
+openzeppelin = "2.0.0"
+openzeppelin_introspection = "2.0.0"
+ekubo = { git = "https://github.com/EkuboProtocol/abis.git", rev = "edb6de8c9baf515f1053bbab3d86825d54a63bc3" }
 
 [dev-dependencies]
-snforge_std_deprecated = "0.48.1"
+# snforge_std_deprecated = "0.48.1"  # Commented out: requires Cairo <=2.11.4, current Scarb is 2.13.1
 assert_macros = "2.11.4"
 
 [[target.starknet-contract]]
@@ -17,10 +23,10 @@ sierra = true
 casm   = true
 
 [scripts]
-test = "snforge test"
+# test = "snforge test"  # Commented out: snforge_std_deprecated disabled
 
 [tool.scarb]
-allow-prebuilt-plugins = ["snforge_std_deprecated"]
+# allow-prebuilt-plugins = ["snforge_std_deprecated"]  # Commented out: package disabled
 
 # Visit https://foundry-rs.github.io/starknet-foundry/appendix/scarb-toml.html for more information
 
