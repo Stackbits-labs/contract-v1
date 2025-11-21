@@ -1,0 +1,14 @@
+[voyager]
+network = "mainnet"
+license = "MIT"
+watch = true
+
+# Define contracts to verify
+[[contracts]]
+class-hash = "0x686d96304ae2a01a97ed5af82cd799f1be5d9601fc39a51928fdde24ab4e985"
+contract-name = "VesuRebalance"
+
+[[contracts]]
+class-hash = "0x3953f81c4bcdacca79064a907a6edd1def4cb9d7d22343b2202aaae3b7fbc5e"
+contract-name = "AccessControl"
+
